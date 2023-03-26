@@ -31,7 +31,6 @@ AVPictureInPictureController *_pipController;
     ///Fix for loading large videos
     if (@available(iOS 10.0, *)) {
         _player.automaticallyWaitsToMinimizeStalling = false;
-        _player.currentItem.preferredForwardBufferDuration = (10);
     }
     self._observersAdded = false;
     return self;
@@ -135,62 +134,6 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     return degrees;
 };
 
-- (AVMutableVideoComposition*)getVideoCompositionWithTransform:(CGAffineTransform)transform
-                                                     withAsset:(AVAsset*)asset
-                                                withVideoTrack:(AVAssetTrack*)videoTrack {
-    AVMutableVideoCompositionInstruction* instruction =
-    [AVMutableVideoCompositionInstruction videoCompositionInstruction];
-    instruction.timeRange = CMTimeRangeMake(kCMTimeZero, [asset duration]);
-    AVMutableVideoCompositionLayerInstruction* layerInstruction =
-    [AVMutableVideoCompositionLayerInstruction
-     videoCompositionLayerInstructionWithAssetTrack:videoTrack];
-    [layerInstruction setTransform:_preferredTransform atTime:kCMTimeZero];
-
-    AVMutableVideoComposition* videoComposition = [AVMutableVideoComposition videoComposition];
-    instruction.layerInstructions = @[ layerInstruction ];
-    videoComposition.instructions = @[ instruction ];
-
-    // If in portrait mode, switch the width and height of the video
-    CGFloat width = videoTrack.naturalSize.width;
-    CGFloat height = videoTrack.naturalSize.height;
-    NSInteger rotationDegrees =
-    (NSInteger)round(radiansToDegrees(atan2(_preferredTransform.b, _preferredTransform.a)));
-    if (rotationDegrees == 90 || rotationDegrees == 270) {
-        width = videoTrack.naturalSize.height;
-        height = videoTrack.naturalSize.width;
-    }
-    videoComposition.renderSize = CGSizeMake(width, height);
-
-    float nominalFrameRate = videoTrack.nominalFrameRate;
-    int fps = 30;
-    if (nominalFrameRate > 0) {
-        fps = (int) ceil(nominalFrameRate);
-    }
-    videoComposition.frameDuration = CMTimeMake(1, fps);
-    
-    return videoComposition;
-}
-
-- (CGAffineTransform)fixTransform:(AVAssetTrack*)videoTrack {
-  CGAffineTransform transform = videoTrack.preferredTransform;
-  // TODO(@recastrodiaz): why do we need to do this? Why is the preferredTransform incorrect?
-  // At least 2 user videos show a black screen when in portrait mode if we directly use the
-  // videoTrack.preferredTransform Setting tx to the height of the video instead of 0, properly
-  // displays the video https://github.com/flutter/flutter/issues/17606#issuecomment-413473181
-  NSInteger rotationDegrees = (NSInteger)round(radiansToDegrees(atan2(transform.b, transform.a)));
-  if (rotationDegrees == 90) {
-    transform.tx = videoTrack.naturalSize.height;
-    transform.ty = 0;
-  } else if (rotationDegrees == 180) {
-    transform.tx = videoTrack.naturalSize.width;
-    transform.ty = videoTrack.naturalSize.height;
-  } else if (rotationDegrees == 270) {
-    transform.tx = 0;
-    transform.ty = videoTrack.naturalSize.width;
-  }
-  return transform;
-}
-
 - (void)setDataSourceAsset:(NSString*)asset withKey:(NSString*)key withCertificateUrl:(NSString*)certificateUrl withLicenseUrl:(NSString*)licenseUrl cacheKey:(NSString*)cacheKey cacheManager:(CacheManager*)cacheManager overriddenDuration:(int) overriddenDuration{
     NSString* path = [[NSBundle mainBundle] pathForResource:asset ofType:nil];
     return [self setDataSourceURL:[NSURL fileURLWithPath:path] withKey:key withCertificateUrl:certificateUrl withLicenseUrl:(NSString*)licenseUrl withHeaders: @{} withCache: false cacheKey:cacheKey cacheManager:cacheManager overriddenDuration:overriddenDuration videoExtension: nil];
@@ -201,7 +144,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     if (headers == [NSNull null] || headers == NULL){
         headers = @{};
     }
-    
+
     AVPlayerItem* item;
     if (useCache){
         if (cacheKey == [NSNull null]){
@@ -210,7 +153,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
         if (videoExtension == [NSNull null]){
             videoExtension = nil;
         }
-        
+
         item = [cacheManager getCachingPlayerItemForNormalPlayback:url cacheKey:cacheKey videoExtension: videoExtension headers:headers];
     } else {
         AVURLAsset* asset = [AVURLAsset URLAssetWithURL:url
@@ -239,38 +182,6 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
     _playerRate = 1;
     [_player replaceCurrentItemWithPlayerItem:item];
 
-    AVAsset* asset = [item asset];
-    void (^assetCompletionHandler)(void) = ^{
-        if ([asset statusOfValueForKey:@"tracks" error:nil] == AVKeyValueStatusLoaded) {
-            NSArray* tracks = [asset tracksWithMediaType:AVMediaTypeVideo];
-            if ([tracks count] > 0) {
-                AVAssetTrack* videoTrack = tracks[0];
-                void (^trackCompletionHandler)(void) = ^{
-                    if (self->_disposed) return;
-                    if ([videoTrack statusOfValueForKey:@"preferredTransform"
-                                                  error:nil] == AVKeyValueStatusLoaded) {
-                        // Rotate the video by using a videoComposition and the preferredTransform
-                        self->_preferredTransform = [self fixTransform:videoTrack];
-                        // Note:
-                        // https://developer.apple.com/documentation/avfoundation/avplayeritem/1388818-videocomposition
-                        // Video composition can only be used with file-based media and is not supported for
-                        // use with media served using HTTP Live Streaming.
-                        AVMutableVideoComposition* videoComposition =
-                        [self getVideoCompositionWithTransform:self->_preferredTransform
-                                                     withAsset:asset
-                                                withVideoTrack:videoTrack];
-                         #if !TARGET_OS_SIMULATOR
-                            item.videoComposition = videoComposition;
-                         #endif
-                    }
-                };
-                [videoTrack loadValuesAsynchronouslyForKeys:@[ @"preferredTransform" ]
-                                          completionHandler:trackCompletionHandler];
-            }
-        }
-    };
-
-    [asset loadValuesAsynchronouslyForKeys:@[ @"tracks" ] completionHandler:assetCompletionHandler];
     [self addObservers:item];
 }
 
@@ -315,6 +226,13 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
         return 0;
     }
 
+}
+
+- (int64_t) seekableDuration
+{
+    CMTimeRange seekableRange = [_player.currentItem.seekableTimeRanges.lastObject CMTimeRangeValue];
+    CGFloat seekableDuration = CMTimeGetSeconds(seekableRange.duration);
+    return seekableDuration * 1000;
 }
 
 - (void)observeValueForKeyPath:(NSString*)path
@@ -370,7 +288,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 
                 [values addObject:@[ @(start), @(end) ]];
             }
-            _eventSink(@{@"event" : @"bufferingUpdate", @"values" : values, @"key" : _key});
+            _eventSink(@{@"event" : @"bufferingUpdate", @"values" : values, @"key" : _key, @"duration" : @([self duration])});
         }
     }
     else if (context == presentationSizeContext){
@@ -508,17 +426,21 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 }
 
 - (int64_t)duration {
-    CMTime time;
-    if (@available(iOS 13, *)) {
-        time =  [[_player currentItem] duration];
+    const BOOL isLive = CMTIME_IS_INDEFINITE([_player currentItem].duration);
+    if (isLive) {
+        return [self seekableDuration];
     } else {
-        time =  [[[_player currentItem] asset] duration];
+        CMTime time;
+        if (@available(iOS 13, *)) {
+            time =  [[_player currentItem] duration];
+        } else {
+            time =  [[[_player currentItem] asset] duration];
+        }
+        if (!CMTIME_IS_INVALID(_player.currentItem.forwardPlaybackEndTime)) {
+            time = [[_player currentItem] forwardPlaybackEndTime];
+        }
+        return [BetterPlayerTimeUtils FLTCMTimeToMillis:(time)];
     }
-    if (!CMTIME_IS_INVALID(_player.currentItem.forwardPlaybackEndTime)) {
-        time = [[_player currentItem] forwardPlaybackEndTime];
-    }
-
-    return [BetterPlayerTimeUtils FLTCMTimeToMillis:(time)];
 }
 
 - (void)seekTo:(int)location {
@@ -554,8 +476,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
         result([FlutterError errorWithCode:@"unsupported_speed"
                                    message:@"Speed must be >= 0.0 and <= 2.0"
                                    details:nil]);
-    } else if ((speed > 1.0 && _player.currentItem.canPlayFastForward) ||
-               (speed < 1.0 && _player.currentItem.canPlaySlowForward)) {
+    } else if (speed > 1.0 || speed < 1.0) {
         _playerRate = speed;
         result(nil);
     } else {
@@ -615,10 +536,14 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 
 - (void)setupPipController {
     if (@available(iOS 9.0, *)) {
+        [[AVAudioSession sharedInstance] setCategory: AVAudioSessionCategoryPlayback error: nil];
         [[AVAudioSession sharedInstance] setActive: YES error: nil];
         [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
         if (!_pipController && self._playerLayer && [AVPictureInPictureController isPictureInPictureSupported]) {
             _pipController = [[AVPictureInPictureController alloc] initWithPlayerLayer:self._playerLayer];
+            if (@available(iOS 14.2, *)) {
+               _pipController.canStartPictureInPictureAutomaticallyFromInline = YES;
+            }
             _pipController.delegate = self;
         }
     } else {
@@ -627,7 +552,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 }
 
 - (void) enablePictureInPicture: (CGRect) frame{
-    [self disablePictureInPicture];
+    //[self disablePictureInPicture];
     [self usePlayerLayer:frame];
 }
 
@@ -643,20 +568,21 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
         //  [self._playerLayer addObserver:self forKeyPath:readyForDisplayKeyPath options:NSKeyValueObservingOptionNew context:nil];
         [vc.view.layer addSublayer:self._playerLayer];
         vc.view.layer.needsDisplayOnBoundsChange = YES;
+        self._playerLayer.opacity = 0;
         if (@available(iOS 9.0, *)) {
             _pipController = NULL;
         }
         [self setupPipController];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            [self setPictureInPicture:true];
-        });
+        // dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+        //                dispatch_get_main_queue(), ^{
+        //     [self setPictureInPicture:true];
+        // });
     }
 }
 
 - (void)disablePictureInPicture
 {
-    [self setPictureInPicture:true];
+    //[self setPictureInPicture:true];
     if (__playerLayer){
         [self._playerLayer removeFromSuperlayer];
         self._playerLayer = nil;
@@ -669,7 +595,7 @@ static inline CGFloat radiansToDegrees(CGFloat radians) {
 
 #if TARGET_OS_IOS
 - (void)pictureInPictureControllerDidStopPictureInPicture:(AVPictureInPictureController *)pictureInPictureController  API_AVAILABLE(ios(9.0)){
-    [self disablePictureInPicture];
+    //[self disablePictureInPicture];
 }
 
 - (void)pictureInPictureControllerDidStartPictureInPicture:(AVPictureInPictureController *)pictureInPictureController  API_AVAILABLE(ios(9.0)){
