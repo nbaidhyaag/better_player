@@ -478,7 +478,10 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
           if (_seekPosition != null && newPosition != null) {
             final difference =
                 newPosition.inMilliseconds - _seekPosition!.inMilliseconds;
-            if (difference > 0) {
+            // if (difference > 0) {
+            //   _seekPosition = null;
+            // }
+            if (difference.abs() < 1000) {
               _seekPosition = null;
             }
           }
@@ -527,13 +530,13 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
   /// and silently clamped.
   Future<void> seekTo(Duration? position) async {
     _timer?.cancel();
-    bool isPlaying = value.isPlaying;
-    final int positionInMs = value.position.inMilliseconds;
-    final int durationInMs = value.duration?.inMilliseconds ?? 0;
-
-    if (positionInMs >= durationInMs && position?.inMilliseconds == 0) {
-      isPlaying = true;
-    }
+    // bool isPlaying = value.isPlaying;
+    // final int positionInMs = value.position.inMilliseconds;
+    // final int durationInMs = value.duration?.inMilliseconds ?? 0;
+    //
+    // if (positionInMs >= durationInMs && position?.inMilliseconds == 0) {
+    //   isPlaying = true;
+    // }
     if (_isDisposed) {
       return;
     }
@@ -541,19 +544,19 @@ class VideoPlayerController extends ValueNotifier<VideoPlayerValue> {
     Duration? positionToSeek = position;
     if (position! > value.duration!) {
       positionToSeek = value.duration;
-    } else if (position < const Duration()) {
-      positionToSeek = const Duration();
+    } else if (position < Duration.zero) {
+      positionToSeek = Duration.zero;
     }
     _seekPosition = positionToSeek;
 
     await _videoPlayerPlatform.seekTo(_textureId, positionToSeek);
     _updatePosition(position);
 
-    if (isPlaying) {
-      play();
-    } else {
-      pause();
-    }
+    // if (isPlaying) {
+    //   play();
+    // } else {
+    //   pause();
+    // }
   }
 
   /// Sets the audio volume of [this].
