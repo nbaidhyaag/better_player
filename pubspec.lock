@@ -405,10 +405,11 @@ packages:
   wakelock:
     dependency: "direct main"
     description:
-      name: wakelock
-      sha256: "769ecf42eb2d07128407b50cb93d7c10bd2ee48f0276ef0119db1d25cc2f87db"
-      url: "https://pub.dev"
-    source: hosted
+      path: wakelock
+      ref: HEAD
+      resolved-ref: f7a385a4d2df8ec9d280bf6d2a97c00443c2a64a
+      url: "https://github.com/sasen98/wakelock"
+    source: git
     version: "0.6.2"
   wakelock_macos:
     dependency: transitive
